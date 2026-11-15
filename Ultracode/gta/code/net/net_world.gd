@@ -79,6 +79,11 @@ func on_session_boot() -> void:
 		EventBus.vehicle_modified.connect(_on_vehicle_modified)
 		Net.roster_changed.connect(_sync_avatars)
 	var p := Game.player as Player
+	if Net.is_client() and p != null:
+		# a fresh character per session: the jersey takes the player colour so friends tell each other apart
+		var app := p.get_appearance()
+		app["top_color"] = "#" + Net.slot_color(Net.my_slot).to_html(false)
+		p.set_appearance(app)
 	if p != null and p.animator != null and not p.animator.action_started.is_connected(_on_local_action):
 		p.animator.action_started.connect(_on_local_action)
 	var vm := Game.get_system("vehicles")

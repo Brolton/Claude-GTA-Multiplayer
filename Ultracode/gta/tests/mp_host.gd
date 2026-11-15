@@ -40,6 +40,8 @@ func _ready() -> void:
 	var t_end := Time.get_ticks_msec() + 30000
 	while Time.get_ticks_msec() < t_end and Net.world.avatars.has(peer):
 		await TestHarness.wait_frames(10)
+		if not is_instance_valid(a):
+			break
 		if a.get_net_position().distance_to(p0) > 2.0:
 			moved = true
 		if a.current_vehicle != null:

@@ -40,6 +40,8 @@ func _ready() -> void:
 		_tp(stop)
 		await _settle(SETTLE_SEC)
 		await _sample(stop, SAMPLE_SEC)
+		if stop == "downtown_plaza" or stop == "general_store":
+			await TestHarness.shot("mp_perf_" + stop)
 	# night in the busiest district (street lamps, lit windows, headlights)
 	_tp("downtown_plaza")
 	WorldClock.set_hour(22.5)
