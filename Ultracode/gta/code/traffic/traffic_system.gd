@@ -85,6 +85,7 @@ var stats: Dictionary = {"spawned": 0, "despawned": 0, "released": 0, "collision
 var _by_body: Dictionary = {}       ## vehicle instance id -> TrafficDriver
 var _focus_override: Vector3 = Vector3.INF
 var _focus: Vector3 = Vector3.ZERO
+var _focus_rr: int = 0              ## multiplayer host: whose turn it is to get the next car
 var _last_focus: Vector3 = Vector3.INF
 var _uid: int = 0
 var _ready_world: bool = false
@@ -319,7 +320,7 @@ func get_density_factor() -> float:
 
 ## Simulated vehicles wanted right now (density x time of day, capped).
 func get_target_count() -> int:
-	return clampi(roundi(float(BASE_TARGET) * get_density_factor() * _time_factor()), 0, CAP)
+	return clampi(roundi(float(BASE_TARGET) * get_density_factor() * _time_factor() * (1.0 + 0.55 * float(_extra_bubbles()))), 0, _cap())
 
 
 ## Spawn / despawn around `pos` instead of the player (tests, cut-scenes). Vector3.INF clears it.
@@ -454,9 +455,54 @@ func is_seen(pos: Vector3) -> bool:
 	var cam := _camera()
 	if cam == null:
 		return false
+	if _mp_host() and Net.world.is_seen_by_remote(pos):
+		return true
 	if cam.global_position.distance_to(pos) > 240.0:
 		return false
 	return cam.is_position_in_frustum(pos)
+
+
+## Multiplayer host: flat distance to the NEAREST player (the single-player focus otherwise).
+func _fd(p: Vector3) -> float:
+	var d := _flat(p, _focus)
+	if _mp_host():
+		d = minf(d, Net.world.focus_distance(p))
+	return d
+
+
+func _mp_host() -> bool:
+	return Net.is_host() and Net.has_remote_players()
+
+
+## Players far from everybody before them in the list: each brings its own share of traffic.
+func _extra_bubbles() -> int:
+	if not _mp_host():
+		return 0
+	var foci := Net.world.get_foci()
+	var n := 0
+	for i in range(1, foci.size()):
+		var apart := true
+		for j in i:
+			if _flat(foci[i], foci[j]) < 150.0:
+				apart = false
+		if apart:
+			n += 1
+	return mini(n, 2)
+
+
+func _cap() -> int:
+	return CAP + 9 * _extra_bubbles()
+
+
+## Where the next car is spawned: the players take turns.
+func _spawn_focus() -> Vector3:
+	if not _mp_host():
+		return _focus
+	var foci := Net.world.get_foci()
+	if foci.is_empty():
+		return _focus
+	_focus_rr = (_focus_rr + 1) % foci.size()
+	return foci[_focus_rr]
 
 
 ## District-aware random spec id for a traffic (parked = false) or parked car ("" if none can spawn).
@@ -563,7 +609,7 @@ func _manager_step(delta: float) -> void:
 	if _park_t <= 0.0:
 		_park_t = 1.0
 		if parking != null:
-			parking.tick(_focus, get_world_3d().direct_space_state, false)
+			parking.tick(_spawn_focus(), get_world_3d().direct_space_state, false)
 	_visual_t -= delta
 	if _visual_t <= 0.0:
 		_visual_t = 0.5
@@ -678,7 +724,7 @@ func _rebuild_table() -> void:
 		if body == null or _by_body.has(body.get_instance_id()):
 			continue
 		var p := body.global_position
-		if _flat(p, _focus) > 230.0:
+		if _fd(p) > 230.0:
 			continue
 		if body.sleeping and body.has_meta("traffic_parked"):
 			continue       # kerb-side parked car: never in a lane
@@ -729,7 +775,7 @@ func _think(d: TrafficDriver, dt: float) -> void:
 		return
 	var xf := body.global_transform
 	var pos := xf.origin
-	var dist := _flat(pos, _focus)
+	var dist := _fd(pos)
 	var seen := is_seen(pos)
 	# ------------------------------------------------------------------ tiers
 	if d.frozen:
@@ -1669,14 +1715,14 @@ func _spawn_tick() -> void:
 			_forget(d)
 			continue
 		var p := d.body.global_position
-		var dist := _flat(p, _focus)
+		var dist := _fd(p)
 		if dist > DESPAWN_HARD or (dist > DESPAWN_DIST and not is_seen(p)):
 			_despawn(d)
 	if drivers.size() > target + 2:
 		var far_d: TrafficDriver = null
 		var far_dist := 100.0
 		for d: TrafficDriver in drivers:
-			var dd := _flat(d.body.global_position, _focus)
+			var dd := _fd(d.body.global_position)
 			if dd > far_dist and not is_seen(d.body.global_position):
 				far_dist = dd
 				far_d = d
@@ -1691,7 +1737,7 @@ func _spawn_tick() -> void:
 		var made := 0
 		while get_active_count() < target and guard < target * 4 and made < CUT_FILL:
 			guard += 1
-			if drivers.size() >= CAP and not _drop_farthest_frozen():
+			if drivers.size() >= _cap() and not _drop_farthest_frozen():
 				break
 			if _try_spawn_ambient(true, 30.0):
 				made += 1
@@ -1706,7 +1752,7 @@ func _spawn_tick() -> void:
 	var boost := _refill_t > 0.0 or active < int(float(target) * 0.6)
 	var per_tick := 3 if boost else 1
 	for i in mini(missing, per_tick):
-		if drivers.size() >= CAP and not _drop_farthest_frozen():
+		if drivers.size() >= _cap() and not _drop_farthest_frozen():
 			break
 		_try_spawn_ambient(false, 45.0 if boost else SPAWN_MIN)
 
@@ -1716,7 +1762,7 @@ func _drop_farthest_frozen() -> bool:
 	var best_d := 0.0
 	for d: TrafficDriver in drivers:
 		if d.frozen and d.is_valid():
-			var dd := _flat(d.body.global_position, _focus)
+			var dd := _fd(d.body.global_position)
 			if dd > best_d and not is_seen(d.body.global_position):
 				best_d = dd
 				best = d
@@ -1741,7 +1787,7 @@ func _try_spawn_ambient(initial: bool, min_d: float) -> bool:
 		return false
 	var player_pos := Game.player.global_position if Game.has_player() else Vector3.INF
 	for attempt in 8:
-		var pick: Dictionary = roads.random_lane_point(_focus, min_d, SPAWN_MAX)
+		var pick: Dictionary = roads.random_lane_point(_spawn_focus(), min_d, SPAWN_MAX)
 		if pick.is_empty():
 			continue
 		var lane := int(pick["lane_id"])
@@ -1759,7 +1805,7 @@ func _try_spawn_ambient(initial: bool, min_d: float) -> bool:
 		if off < 6.0 or off > lanes.length[lane] - 12.0:
 			continue
 		var p := lanes.lane_point(lane, off)
-		if player_pos != Vector3.INF and _flat(p, player_pos) < PLAYER_CLEAR:
+		if (player_pos != Vector3.INF and _flat(p, player_pos) < PLAYER_CLEAR) or Net.world.remote_player_near(p, PLAYER_CLEAR) != Vector3.INF:
 			continue
 		if not initial and is_seen(p):
 			continue
@@ -1913,7 +1959,7 @@ func _orphan_tick() -> void:
 			orphans.remove_at(i)       # not ours to clean up any more
 			continue
 		var p := (v as Node3D).global_position
-		var dist := _flat(p, _focus)
+		var dist := _fd(p)
 		if (dist > DESPAWN_DIST and not is_seen(p)) or (orphans.size() > MAX_ORPHANS and dist > 60.0 and not is_seen(p)):
 			orphans.remove_at(i)
 			despawn_vehicle_node(v)
@@ -1924,12 +1970,12 @@ func _player_aboard(v: Variant) -> bool:
 	if v == null or not is_instance_valid(v):
 		return false
 	var pv := Game.get_player_vehicle()
-	return pv != null and pv == v
+	return (pv != null and pv == v) or Net.world.is_player_vehicle(v)
 
 
 func _is_player_owned(v: Variant) -> bool:
 	return v.get("is_player_driven") == true or str(v.get("owner_tag")) == "player" or v.get("personal") == true \
-			or v == Game.get_player_vehicle()
+			or v == Game.get_player_vehicle() or v.get("net_puppet") == true or Net.world.is_player_vehicle(v)
 
 
 func _ground_y(p: Vector3) -> float:

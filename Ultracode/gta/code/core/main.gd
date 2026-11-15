@@ -15,6 +15,7 @@ func _ready() -> void:
 
 
 func _boot() -> void:
+	await Net.pre_boot()                # multiplayer: start menu / handshake before the world is built
 	var t0 := Time.get_ticks_msec()
 	for entry: Dictionary in BootManifest.SYSTEMS:
 		var sys_name: String = entry["name"]
@@ -48,6 +49,7 @@ func _boot() -> void:
 	Game.is_ready = true
 	print("[Main] boot finished in %d ms, systems: %s" % [Time.get_ticks_msec() - t0, str(Game.systems.keys())])
 	EventBus.game_ready.emit()
+	Net.post_boot()
 
 
 func _spawn_player() -> void:
@@ -66,7 +68,7 @@ func _spawn_player() -> void:
 	var player := scene.instantiate() as Node3D
 	player.name = "Player"
 	add_child(player)
-	var spawn := Game.get_location("spawn_start")
+	var spawn := Net.get_spawn_transform()
 	if player.has_method("teleport"):
 		player.teleport(spawn.origin, spawn.basis.get_euler().y)
 	else:

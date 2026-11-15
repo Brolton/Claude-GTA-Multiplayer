@@ -134,6 +134,8 @@ func tick(focus: Vector3, space: PhysicsDirectSpaceState3D, initial: bool, budge
 				sys.call("adopt_orphan", v)
 			continue
 		var d := Vector2(body.global_position.x - focus.x, body.global_position.z - focus.z).length()
+		if Net.is_host() and Net.has_remote_players():
+			d = minf(d, Net.world.focus_distance(body.global_position))    # near ANY player
 		if d > DESPAWN_RADIUS and not bool(sys.call("is_seen", body.global_position)):
 			bay_vehicle[bi] = null
 			parked.remove_at(i)

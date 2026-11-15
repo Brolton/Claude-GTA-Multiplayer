@@ -398,7 +398,7 @@ func reset_for_respawn() -> void:
 
 
 func _is_protected(v: VehicleBase) -> bool:
-	return v.is_player_driven or v.personal or v == Game.get_player_vehicle()
+	return v.is_player_driven or v.personal or v == Game.get_player_vehicle() or v.net_puppet or Net.world.is_player_vehicle(v)
 
 
 func _enforce_caps(keep: VehicleBase) -> void:

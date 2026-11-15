@@ -66,6 +66,9 @@ func process_enter_key(delta: float, allowed: bool) -> bool:
 		var c := v.global_position
 		if Vector2(c.x - p.global_position.x, c.z - p.global_position.z).length() > Player.VEHICLE_REACH + 4.0:
 			return false
+		# next to a car another PLAYER drives the keys swap: tap = ride along, hold = pull them out
+		if Net.world.is_remote_player(v.get("driver")):
+			held = not held
 		if held:
 			var seat := passenger_seat(v)
 			if seat > 0:
@@ -170,6 +173,8 @@ func begin_jack(v: Node3D, seat: int) -> void:
 ## Pull the occupant of `seat` out (W2.1). Returns the victim (may be null).
 func pull_out(v: Node3D, seat: int) -> Node:
 	var p := player
+	if v.get("net_puppet") == true:
+		Net.world.request_jack(v, seat)     # the machine that simulates the car pulls its AI driver out
 	var victim := occupant_of(v, seat)
 	var released: Node = null
 	if seat == 0 and v.has_meta("ai_controller"):

@@ -215,7 +215,8 @@ func get_entities_root() -> Node:
 # --- pause / time scale / input lock ---------------------------------------------------------
 
 func set_paused(paused: bool) -> void:
-	get_tree().paused = paused
+	# multiplayer: the world never stops for one player (the menus still lock the input)
+	get_tree().paused = paused and not Net.is_active()
 	EventBus.game_paused.emit(paused)
 
 
@@ -242,6 +243,8 @@ func _apply_time_scale() -> void:
 		else:
 			fast = maxf(fast, v)
 	var s := slow if slow < 1.0 else fast
+	if Net.is_active():
+		s = 1.0                         # multiplayer: one clock for everybody
 	Engine.time_scale = s
 
 

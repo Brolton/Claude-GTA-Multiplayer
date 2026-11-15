@@ -33,6 +33,7 @@ Skills="*res://gta/code/player/skills.gd"
 SaveSystem="*res://gta/code/save/save_system.gd"
 UI="*res://gta/code/ui/ui_manager.gd"
 TestHarness="*res://gta/code/debug/test_harness.gd"
+Net="*res://gta/code/net/net.gd"
 
 [display]
 
@@ -77,6 +78,7 @@ common/physics_interpolation=false
 [rendering]
 
 renderer/rendering_method="forward_plus"
+rendering_device/driver.windows="d3d12"
 anti_aliasing/quality/msaa_3d=1
 anti_aliasing/quality/screen_space_aa=1
 scaling_3d/scale=1.0

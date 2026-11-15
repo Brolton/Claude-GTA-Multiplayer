@@ -762,3 +762,21 @@ func get_telemetry() -> Dictionary:
 	return {"speed_kmh": speed_kmh, "steer": steer_norm, "afloat": afloat, "submerged": submerged,
 			"prop_in_water": prop_in_water, "aground": aground, "trim_deg": trim_deg, "bank_deg": bank_deg,
 			"rpm": rpm, "moored": moored}
+
+
+# ==============================================================================================
+# multiplayer puppet (see VehicleBase.net_*)
+# ==============================================================================================
+
+func net_get_extra() -> PackedFloat32Array:
+	return PackedFloat32Array([steer_angle, steer_norm, rpm, _throttle_eff, 1.0 if afloat else 0.0])
+
+
+func net_set_extra(e: PackedFloat32Array) -> void:
+	if e.size() < 5:
+		return
+	steer_angle = e[0]
+	steer_norm = e[1]
+	rpm = e[2]
+	_throttle_eff = e[3]
+	afloat = e[4] > 0.5

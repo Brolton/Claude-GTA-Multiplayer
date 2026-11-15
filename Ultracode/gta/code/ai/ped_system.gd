@@ -92,6 +92,7 @@ var _avoid_cursor: int = 0
 var _reporting: bool = false
 var _sight_only: bool = false          ## the crime being reported right now was silent (takedown)
 var _focus: Vector3 = Vector3.ZERO
+var _focus_rr: int = 0
 var _rng := RandomNumberGenerator.new()
 var _walk: Object = null
 var _ambient_count: int = 0
@@ -311,7 +312,8 @@ func get_target_count() -> int:
 	if not enabled or _walk == null:
 		return 0
 	var density := float(Settings.get_value("ped_density")) if Settings.get_value("ped_density") != null else 1.0
-	var cap := mini(MAX_CAP, int(round(BASE_CAP * density * density_mult)))
+	var bubbles := 1.0 + 0.7 * float(_extra_bubbles())
+	var cap := mini(int(MAX_CAP * bubbles), int(round(BASE_CAP * density * density_mult * bubbles)))
 	var district := _district_at(_focus)
 	var dfac := float(DISTRICT_DENSITY.get(district, 0.5))
 	var tfac := 1.0
@@ -512,7 +514,7 @@ func _process(delta: float) -> void:
 
 
 func _tier_for(pos: Vector3) -> int:
-	var d := Vector2(pos.x - _focus.x, pos.z - _focus.z).length()
+	var d := _fd(pos)
 	if d < TIER0_DIST:
 		return 0
 	if d < TIER1_DIST:
@@ -530,7 +532,7 @@ func _update_tiers_and_despawn() -> void:
 			_npcs.remove_at(i)
 			continue
 		var p := npc.global_position
-		var d := Vector2(p.x - _focus.x, p.z - _focus.z).length()
+		var d := _fd(p)
 		npc.set_sim_tier(0 if d < TIER0_DIST else (1 if d < TIER1_DIST else 2))
 		if npc.is_dead:
 			if npc.can_be_cleaned():
@@ -587,8 +589,9 @@ func _spawn_step() -> void:
 		return
 	if _ambient_count >= get_target_count():
 		return
+	var sf := _spawn_focus()
 	for attempt in 6:
-		var p: Vector3 = _walk.call("random_point", _focus, MIN_SPAWN, MAX_SPAWN)
+		var p: Vector3 = _walk.call("random_point", sf, MIN_SPAWN, MAX_SPAWN)
 		if p == Vector3.INF:
 			return
 		if Game.is_in_water(p + Vector3(0.0, 0.2, 0.0)):
@@ -596,7 +599,7 @@ func _spawn_step() -> void:
 		var district := _district_at(p)
 		if _rng.randf() > float(DISTRICT_DENSITY.get(district, 0.5)) + 0.05:
 			continue
-		var d := Vector2(p.x - _focus.x, p.z - _focus.z).length()
+		var d := _fd(p)
 		if attempt < 4 and d < 70.0 and _in_view(p):
 			continue
 		if _crowded(p, 2.5):
@@ -686,6 +689,8 @@ func _in_view(p: Vector3) -> bool:
 	if cam == null:
 		return false
 	var head := p + Vector3(0.0, 1.2, 0.0)
+	if _mp_host() and Net.world.is_seen_by_remote(head, 140.0):
+		return true
 	if not cam.is_position_in_frustum(head):
 		return false
 	if cam.global_position.distance_to(head) > 140.0:
@@ -761,7 +766,7 @@ func _gang_step(dt: float) -> void:
 	for idx in _gang_spots.size():
 		var spot: Dictionary = _gang_spots[idx]
 		var pos: Vector3 = spot["pos"]
-		var d := Vector2(pos.x - _focus.x, pos.z - _focus.z).length()
+		var d := _fd(pos)
 		spot["cooldown"] = maxf(float(spot["cooldown"]) - dt, 0.0)
 		var members: Array = spot["members"]
 		if bool(spot["active"]):
@@ -787,6 +792,8 @@ func _gang_step(dt: float) -> void:
 
 
 func _spawn_gang(idx: int, spot: Dictionary) -> void:
+	if Net.is_client():
+		return                          # multiplayer: the host owns the ambient world
 	var pos: Vector3 = spot["pos"]
 	var n := _rng.randi_range(3, GANG_MAX_PER_SPOT)
 	var members: Array = []
@@ -989,3 +996,46 @@ static func _dist_point_segment(p: Vector3, a: Vector3, b: Vector3) -> float:
 		return ap.length()
 	var t := clampf(ap.dot(ab) / l2, 0.0, 1.0)
 	return (ap - ab * t).length()
+
+
+# =================================================================================================
+# multiplayer host: the population follows every player (docs/MULTIPLAYER.md)
+# =================================================================================================
+
+func _mp_host() -> bool:
+	return Net.is_host() and Net.has_remote_players()
+
+
+## Flat distance to the nearest player (to the single-player focus otherwise).
+func _fd(p: Vector3) -> float:
+	var d := Vector2(p.x - _focus.x, p.z - _focus.z).length()
+	if _mp_host():
+		d = minf(d, Net.world.focus_distance(p))
+	return d
+
+
+## Players far from everybody before them in the list bring their own share of pedestrians.
+func _extra_bubbles() -> int:
+	if not _mp_host():
+		return 0
+	var foci := Net.world.get_foci()
+	var n := 0
+	for i in range(1, foci.size()):
+		var apart := true
+		for j in i:
+			if Vector2(foci[i].x - foci[j].x, foci[i].z - foci[j].z).length() < 90.0:
+				apart = false
+		if apart:
+			n += 1
+	return mini(n, 2)
+
+
+## Where the next pedestrian appears: the players take turns.
+func _spawn_focus() -> Vector3:
+	if not _mp_host():
+		return _focus
+	var foci := Net.world.get_foci()
+	if foci.is_empty():
+		return _focus
+	_focus_rr = (_focus_rr + 1) % foci.size()
+	return foci[_focus_rr]

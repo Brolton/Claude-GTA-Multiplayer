@@ -1797,7 +1797,8 @@ func _check_vehicle_hits() -> void:
 		return
 	for b: Node3D in _vehicle_sensor.get_overlapping_bodies():
 		var rb := b as RigidBody3D
-		if rb == null or rb == _ignored_vehicle:
+		if rb == null or rb == _ignored_vehicle or rb.get("net_puppet") == true:
+			# (a puppet: the machine that simulates that vehicle reports its hits)
 			continue
 		var rel := rb.linear_velocity - velocity
 		var speed := rel.length()

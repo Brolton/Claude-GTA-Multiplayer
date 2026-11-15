@@ -127,6 +127,16 @@ var _steering_rest: Transform3D
 var _steering_axis: Vector3 = Vector3.BACK
 var _built: bool = false
 
+# --- multiplayer (gta/code/net, docs/MULTIPLAYER.md) -----------------------------------------------
+var net_id: int = 0                    ## replication id (0 = not replicated)
+## True while another machine simulates this vehicle: this copy is a kinematic body that follows
+## snapshots (no input, no forces, no damage decisions - hits are forwarded to the authority).
+var net_puppet: bool = false
+var net_velocity: Vector3 = Vector3.ZERO      ## puppet: replicated linear velocity (the body itself is kinematic)
+var net_angular: Vector3 = Vector3.ZERO
+var net_braking: bool = false          ## puppet: brake lamps
+var net_reversing: bool = false
+
 static var _shape_cache: Dictionary = {}     ## model path -> Array of [Shape3D, Transform3D]
 static var _burnt_cache: Dictionary = {}     ## original material instance id -> burnt Material
 ## Game-time clock shared by every vehicle. VehicleManager advances it once per physics frame, so
@@ -1206,11 +1216,13 @@ func set_indicator(dir: int) -> void:
 
 
 func is_braking() -> bool:
+	if net_puppet:
+		return net_braking
 	return in_brake > 0.1 or in_handbrake
 
 
 func is_reversing() -> bool:
-	return false
+	return net_puppet and net_reversing
 
 
 # ==============================================================================================
@@ -1218,16 +1230,27 @@ func is_reversing() -> bool:
 # ==============================================================================================
 
 func apply_damage(info: Dictionary) -> void:
+	if net_puppet:
+		# somebody else simulates this vehicle: it decides what the hit does
+		if not bool(info.get("net", false)):
+			Net.world.forward_damage(self, info)
+		return
 	if damage != null:
 		damage.apply(info)
 
 
 func repair() -> void:
+	if net_puppet:
+		Net.world.request_vehicle_state(self, "repair", true)
+		return
 	if damage != null:
 		damage.repair()
 
 
 func explode(instigator: Node = null) -> void:
+	if net_puppet:
+		Net.world.forward_damage(self, Dmg.make(100000.0, "explosion", instigator, global_position, Vector3.UP))
+		return
 	if damage != null:
 		damage.explode(instigator)
 
@@ -1271,6 +1294,8 @@ func _on_repaired() -> void:
 # ==============================================================================================
 
 func get_forward_speed() -> float:
+	if net_puppet:
+		return _fwd_speed
 	if sleeping:
 		return 0.0
 	return linear_velocity.dot(-global_transform.basis.z) if is_inside_tree() else 0.0
@@ -1362,6 +1387,8 @@ func get_center_position() -> Vector3:
 
 ## Move the vehicle instantly (garage, admin, tests). Velocities are cleared.
 func teleport(xform: Transform3D) -> void:
+	if net_puppet:
+		return                          # only the authority moves it
 	_recover_t = -1.0
 	_flip_t = 0.0
 	global_transform = xform
@@ -1441,6 +1468,9 @@ func _update_steering_wheel(steer_norm: float) -> void:
 func _physics_process(delta: float) -> void:
 	if not _built:
 		return
+	if net_puppet:
+		_pending_hits.clear()
+		return                          # Net.world moves puppets (net_puppet_tick)
 	if not _pending_hits.is_empty():
 		_flush_collisions()
 	if destroyed:
@@ -1489,7 +1519,7 @@ func _wants_wake() -> bool:
 
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
-	if not _built:
+	if not _built or net_puppet:
 		return
 	if _recover_t >= 0.0:
 		_integrate_recovery(state)
@@ -1750,3 +1780,75 @@ func _integrate_recovery(state: PhysicsDirectBodyState3D) -> void:
 		_flip_t = 0.0
 		can_sleep = true
 		_on_teleported()
+
+
+# ==============================================================================================
+# multiplayer hooks (gta/code/net/net_world.gd drives these)
+# ==============================================================================================
+
+## Switch between "simulated here" and "puppet of another machine" (authority hand-over).
+func net_set_puppet(on: bool) -> void:
+	if on == net_puppet:
+		return
+	net_puppet = on
+	_pending_hits.clear()
+	_recover_t = -1.0
+	_flip_t = 0.0
+	if on:
+		_scripted = false
+		_clear_inputs()
+		net_velocity = linear_velocity
+		net_angular = angular_velocity
+		freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+		freeze = true
+	else:
+		if destroyed:
+			freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
+		else:
+			freeze = false
+			linear_velocity = net_velocity
+			angular_velocity = net_angular
+			sleeping = false
+		_prev_lin = net_velocity
+		_fwd_speed = net_velocity.dot(-global_transform.basis.z) if is_inside_tree() else 0.0
+		can_sleep = true
+		_on_teleported()
+
+
+## Puppet: called every physics frame after Net.world placed the body.
+func net_puppet_tick(_delta: float) -> void:
+	_fwd_speed = net_velocity.dot(-global_transform.basis.z)
+	speed_kmh = absf(_fwd_speed) * 3.6
+
+
+## A few class-specific numbers that only matter for how the vehicle LOOKS / SOUNDS on other
+## machines (steering angle, engine speed, rotor speed ...). Subclasses override both.
+func net_get_extra() -> PackedFloat32Array:
+	return PackedFloat32Array()
+
+
+func net_set_extra(_e: PackedFloat32Array) -> void:
+	pass
+
+
+## Bit mask of the cosmetic damage state (bits 0-7 broken panes, bits 8-15 flat tyres).
+func net_get_damage_bits() -> int:
+	var bits := 0
+	if damage != null:
+		for i in mini(damage.pane_broken.size(), 8):
+			if damage.pane_broken[i] != 0:
+				bits |= 1 << i
+	for i in mini(get_wheel_count(), 8):
+		if is_tire_flat(i):
+			bits |= 1 << (8 + i)
+	return bits
+
+
+func net_set_damage_bits(bits: int) -> void:
+	if damage != null:
+		for i in mini(damage.pane_broken.size(), 8):
+			if (bits & (1 << i)) != 0 and damage.pane_broken[i] == 0:
+				damage._break_pane(i, true)
+	for i in mini(get_wheel_count(), 8):
+		if (bits & (1 << (8 + i))) != 0 and not is_tire_flat(i):
+			pop_tire(i)

@@ -30,6 +30,8 @@ func _ready() -> void:
 
 
 func _spawn_all() -> void:
+	if Net.is_client():
+		return                          # multiplayer: the host owns the ambient world
 	if _spawned or not is_inside_tree():
 		return
 	_spawned = true
@@ -96,6 +98,8 @@ func _count_alive() -> int:
 
 
 func _fill(i: int) -> void:
+	if Net.is_client():
+		return                          # multiplayer: the host owns the ambient world
 	var s := slips[i]
 	var xf: Transform3D = s["xform"]
 	var v := Game.spawn_vehicle(str(s["spec_id"]), xf, {"owner_tag": "parked"}) as Node3D

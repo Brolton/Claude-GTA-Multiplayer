@@ -825,6 +825,8 @@ func _hidden_walk_point(near: Vector3, dmin: float, dmax: float) -> Vector3:
 # --- ambient presence (0 stars) ------------------------------------------------------------------
 
 func _ambient_step() -> void:
+	if Net.is_client():
+		return                          # multiplayer: the host owns the ambient world
 	var pp := Game.get_player_position()
 	var patrols := 0
 	for u: PoliceVehicleAi in units.duplicate():
@@ -880,6 +882,8 @@ func _beat_step(pp: Vector3) -> void:
 
 
 func _station_cars_step(pp: Vector3) -> void:
+	if Net.is_client():
+		return                          # multiplayer: the host owns the ambient world
 	for i in range(station_cars.size() - 1, -1, -1):
 		var v := station_cars[i]
 		if not is_instance_valid(v) or bool(v.get("destroyed")) or v.get("driver") != null:

@@ -64,6 +64,7 @@ func _ready() -> void:
 	_add_entry(left, "map", "Map", &"map")
 	_add_entry(left, "status", "Status", &"stats")
 	_add_entry(left, "settings", "Settings", &"gear")
+	_add_entry(left, "multiplayer", "Multiplayer", &"map")
 	_add_entry(left, "save", "Save Game", &"save")
 	_add_entry(left, "load", "Load Game", &"load")
 	_add_entry(left, "quit", "Quit", &"power")
@@ -168,6 +169,9 @@ func _on_entry(id: String) -> void:
 			UI.open_screen("status")
 		"settings":
 			_show_settings()
+		"multiplayer":
+			close_self()
+			Net.open_menu()
 		"save":
 			var ok: bool = SaveSystem.save_game(MANUAL_SLOT)
 			UI.notify("Game saved" if ok else "Save failed", "good" if ok else "bad")

@@ -44,6 +44,7 @@ var damage: float = 200.0
 var radius: float = 6.0
 var fuse: float = 3.0                   ## seconds left (lifetime for swept kinds)
 var exploded: bool = false
+var net_cosmetic: bool = false          ## multiplayer: the twin of another machine's projectile - looks only, no damage
 
 var _cfg: Dictionary = {}
 var _swept: bool = false
@@ -91,8 +92,11 @@ static func launch(p_kind: String, origin: Vector3, velocity: Vector3, p_instiga
 	p._configure_body()
 	root.add_child(p)
 	p.global_position = origin
+	p.net_cosmetic = bool(opts.get("net_cosmetic", false))
 	p._after_spawn()
 	_active.append(p)
+	if not p.net_cosmetic and Net.is_active():
+		Net.combat.on_local_projectile(p, velocity)
 	return p
 
 
@@ -320,6 +324,9 @@ func _explode(at: Vector3) -> void:
 	if exploded:
 		return
 	exploded = true
+	if net_cosmetic:
+		_finish()                       # the real blast arrives as its own event
+		return
 	var who: Node = instigator if (instigator != null and is_instance_valid(instigator)) else null
 	Fx.explosion(at, radius, damage, who, {"weapon_id": weapon_id, "ignore": [self]})
 	_finish()
@@ -360,7 +367,7 @@ func _break_molotov(pos: Vector3, normal: Vector3, collider: Object) -> void:
 	# the real Fx fire may burn things itself; then this projectile only keeps the bookkeeping
 	_burn_external = _fire_node != null and is_instance_valid(_fire_node) and (
 			_fire_node.get("deals_damage") == true or _fire_node.has_meta("deals_damage"))
-	if _burn_external:
+	if _burn_external or net_cosmetic:
 		# same pool as the built-in ticks: spec damage per burn interval inside the blast radius
 		_fire_node.set("instigator", who)
 		_fire_node.set("weapon_id", weapon_id)
@@ -383,7 +390,7 @@ func _process_burn(delta: float) -> void:
 	if _burn_left <= 0.0:
 		_finish()
 		return
-	if _burn_external:
+	if _burn_external or net_cosmetic:
 		return
 	_burn_tick -= delta
 	if _burn_tick > 0.0:

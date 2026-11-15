@@ -137,7 +137,8 @@ static func fire_hitscan(origin: Vector3, direction: Vector3, spec_or_id: Varian
 						mult *= spec.limb_mult
 				elif target.is_in_group("vehicle"):
 					mult *= spec.vehicle_damage_mult
-					_try_pop_tire(target, pos)
+					if not bool(opts.get("cosmetic", false)):
+						_try_pop_tire(target, pos)
 				if by_npc and Dmg.is_player(target):
 					mult *= npc_damage_scale
 				amount = spec.damage * mult
@@ -178,6 +179,9 @@ static func fire_hitscan(origin: Vector3, direction: Vector3, spec_or_id: Varian
 
 	_shot_side_effects(spec, origin, dir, instigator, opts, silent, character_hit, muzzle)
 
+	# multiplayer: the re-played shot of another machine is looks + noise only (it did the damage)
+	if bool(opts.get("cosmetic", false)):
+		return result
 	# deliver the accumulated damage: one apply_damage per target and shot
 	var total := 0.0
 	for key: int in per_target:

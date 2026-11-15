@@ -891,3 +891,33 @@ class AirAudio extends VehicleAudio:
 					engine.play()
 		elif _usable(engine) and engine.playing:
 			engine.stop()
+
+
+# ==============================================================================================
+# multiplayer puppet (see VehicleBase.net_*)
+# ==============================================================================================
+
+func net_get_extra() -> PackedFloat32Array:
+	return PackedFloat32Array([prop_rpm, throttle, flaps, in_pitch, in_roll, in_yaw, 1.0 if on_ground else 0.0, engine_power])
+
+
+func net_set_extra(e: PackedFloat32Array) -> void:
+	if e.size() < 8:
+		return
+	prop_rpm = e[0]
+	throttle = e[1]
+	flaps = e[2]
+	in_pitch = e[3]
+	in_roll = e[4]
+	in_yaw = e[5]
+	on_ground = e[6] > 0.5
+	engine_power = e[7]
+
+
+func net_puppet_tick(delta: float) -> void:
+	super.net_puppet_tick(delta)
+	airspeed = net_velocity.length()
+	for leg: GearLeg in _gear:
+		leg.grounded = on_ground
+		leg.compression = 0.0
+		leg.ang_vel = _fwd_speed / 0.25 if on_ground else 0.0

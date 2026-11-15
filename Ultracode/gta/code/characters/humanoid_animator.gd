@@ -23,6 +23,8 @@ extends Node
 
 signal footstep(foot: int, intensity: float)      ## foot: 0 = left, 1 = right; intensity 0..1 (walk..sprint)
 signal action_finished(action_name: String)
+## Multiplayer: a one-shot action started (replicated to the other machines).
+signal action_started(action_name: String, duration: float)
 
 enum {
 	B_ROOT, B_HIPS, B_SPINE, B_CHEST, B_NECK, B_HEAD,
@@ -481,6 +483,7 @@ func play_action(action_name: String, duration: float = -1.0) -> void:
 	_act_name = action_name
 	_act_t = 0.0
 	_act_dur = duration if duration > 0.0 else float(ACTIONS[action_name])
+	action_started.emit(action_name, _act_dur)
 
 
 func stop_action() -> void:

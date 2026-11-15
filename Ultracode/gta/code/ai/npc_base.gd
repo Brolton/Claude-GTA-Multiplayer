@@ -166,6 +166,9 @@ var _bump_cd: float = 0.0
 var _gesture_t: float = 0.0
 var _anim_defaults: Dictionary = {}
 var _tier_applied: bool = false
+# --- multiplayer (gta/code/net): a puppet has no brain / senses / steering, it follows snapshots
+var net_id: int = 0
+var net_puppet: bool = false
 
 
 # =================================================================================================
@@ -395,6 +398,8 @@ func reset_for_pool() -> void:
 		visual.visible = true
 		visual.position = Vector3.ZERO
 	senses.reset()
+	net_id = 0
+	net_puppet = false
 
 
 # =================================================================================================
@@ -421,6 +426,12 @@ func _process(delta: float) -> void:
 
 func physics_tick(delta: float) -> void:
 	if not _built or not is_inside_tree():
+		return
+	if net_puppet:
+		# simulated on another machine: Net.world places the body from snapshots
+		if is_dead:
+			dead_time += delta
+			_follow_ragdoll()
 		return
 	if is_dead:
 		dead_time += delta
@@ -464,7 +475,7 @@ func physics_tick(delta: float) -> void:
 
 
 func think_tick(delta: float) -> void:
-	if is_dead or not is_inside_tree():
+	if is_dead or not is_inside_tree() or net_puppet:
 		return
 	if current_vehicle == null and not is_down:
 		senses.update(delta)
@@ -1121,6 +1132,8 @@ func _restore_anim_defaults() -> void:
 func play_action(action: String, duration: float = 0.6) -> void:
 	if animator != null and animator.has_method("play_action"):
 		animator.call("play_action", action, duration)
+	if net_id != 0 and not net_puppet:
+		Net.world.on_local_npc_action(self, action, duration)
 
 
 func _set_collision(on: bool) -> void:
@@ -1715,6 +1728,11 @@ func apply_damage(info: Dictionary) -> void:
 		return
 	if amount <= 0.0:
 		return
+	if net_puppet:
+		# the machine that simulates this NPC decides what the hit does
+		if not bool(info.get("net", false)):
+			Net.world.on_puppet_npc_damage(self, info)
+		return
 	var attacker := _resolve_attacker(info.get("instigator", null))
 	if armor > 0.0 and (type == "bullet" or type == "explosion"):
 		var absorbed := minf(armor, amount * 0.7)
@@ -1903,6 +1921,9 @@ func knock_down(impulse: Vector3) -> void:
 	if current_vehicle != null:
 		return
 	if _is_same_impact():
+		return
+	if net_puppet:
+		Net.world.forward_knock(self, impulse)
 		return
 	if is_down:
 		if _ragdoll != null and is_instance_valid(_ragdoll):
@@ -2108,6 +2129,8 @@ func _die(info: Dictionary, killer: Node) -> void:
 	var pk := Game.get_system("pickups")
 	if pk != null and pk.has_method("drop_from_npc") and current_vehicle == null:
 		pk.call("drop_from_npc", self)
+	if net_id != 0 and not net_puppet:
+		Net.world.on_local_npc_died(self, info, killer)
 	died.emit(self, killer)
 	EventBus.npc_died.emit(self, killer, info)
 	_notify("died", {"info": info, "killer": killer})

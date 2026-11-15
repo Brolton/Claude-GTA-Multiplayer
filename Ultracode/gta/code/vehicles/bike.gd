@@ -1109,8 +1109,8 @@ func _update_visuals(delta: float) -> void:
 	var target_lean := 0.0
 	if not fallen and not destroyed and moving and grounded_wheels > 0 and _recover_t < 0.0:
 		var gt := global_transform
-		var v_fwd := linear_velocity.dot(-gt.basis.z)
-		var yaw_rate := angular_velocity.dot(gt.basis.y)
+		var v_fwd := (net_velocity if net_puppet else linear_velocity).dot(-gt.basis.z)
+		var yaw_rate := (net_angular if net_puppet else angular_velocity).dot(gt.basis.y)
 		var max_lean := deg_to_rad(float(_p["max_lean_deg"]))
 		target_lean = clampf(atan(v_fwd * -yaw_rate / GRAV), -max_lean, max_lean) * clampf(absf(v_fwd) / 3.0, 0.0, 1.0)
 	lean = lerpf(lean, target_lean, clampf(delta * float(_p["lean_rate"]), 0.0, 1.0))
@@ -1240,3 +1240,35 @@ func get_telemetry() -> Dictionary:
 	return {"gear": gear, "rpm": rpm, "speed_kmh": speed_kmh, "steer": steer_norm, "grounded": grounded_wheels,
 			"lean_deg": rad_to_deg(lean), "skid": _skid, "throttle": _throttle_eff, "fallen": fallen,
 			"pedal": pedal_effort, "sprint": sprinting}
+
+
+# ==============================================================================================
+# multiplayer puppet (see VehicleBase.net_*)
+# ==============================================================================================
+
+func net_get_extra() -> PackedFloat32Array:
+	return PackedFloat32Array([steer_angle, steer_norm, get_rpm_factor(), _throttle_eff, _skid, 1.0 if fallen else 0.0])
+
+
+func net_set_extra(e: PackedFloat32Array) -> void:
+	if e.size() < 6:
+		return
+	steer_angle = e[0]
+	steer_norm = e[1]
+	rpm = e[2] if is_bicycle else e[2] * maxf(spec.redline_rpm, 1.0)
+	_throttle_eff = e[3]
+	_skid = e[4]
+	fallen = e[5] > 0.5
+
+
+func net_puppet_tick(delta: float) -> void:
+	super.net_puppet_tick(delta)
+	_brake_lamp = net_braking
+	grounded_wheels = wheels.size()
+	_visual_settled = false
+	for w: VehicleWheel in wheels:
+		w.grounded = true
+		w.compression = 0.0
+		w.ang_vel = _fwd_speed / maxf(w.radius, 0.1)
+		w.skid = _skid if not w.is_front else 0.0
+		w.contact_point = global_transform * (w.rest_pos - Vector3(0.0, w.radius, 0.0))

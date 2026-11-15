@@ -503,6 +503,8 @@ func _slow_tick() -> void:
 
 
 func _spawn_staff(st: Dictionary) -> void:
+	if Net.is_client():
+		return                          # multiplayer: the host owns the ambient world
 	var x: Transform3D = st["staff_xform"]
 	var def: Dictionary = st["def"]
 	var opts := {"yaw": x.basis.get_euler().y, "persistent": true, "role": "shop_staff", "shop_id": st["id"]}

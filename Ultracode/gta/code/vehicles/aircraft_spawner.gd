@@ -132,6 +132,8 @@ func _add_slot(spec_id: String, xf: Transform3D, label: String) -> void:
 
 
 func _spawn_slot(i: int) -> Node3D:
+	if Net.is_client():
+		return null                     # multiplayer: the host owns the parked aircraft
 	if i < 0 or i >= slots.size() or not enabled:
 		return null
 	var s := slots[i]

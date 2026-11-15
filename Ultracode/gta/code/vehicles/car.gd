@@ -862,9 +862,6 @@ func is_braking() -> bool:
 	return in_brake > 0.1 or in_handbrake or (_brake_lamp and not sleeping)
 
 
-func is_reversing() -> bool:
-	return gear == -1 and engine_on and (in_throttle < -0.02 or _fwd_speed < -0.3)
-
 
 func get_rpm_factor() -> float:
 	return clampf(rpm / maxf(spec.redline_rpm, 1.0), 0.0, 1.0)
@@ -959,3 +956,42 @@ func _on_repaired() -> void:
 func get_telemetry() -> Dictionary:
 	return {"gear": gear, "rpm": rpm, "speed_kmh": speed_kmh, "steer": steer_norm, "grounded": grounded_wheels,
 			"skid": _skid, "throttle": _throttle_eff, "brake": _brake_eff}
+
+
+# ==============================================================================================
+# multiplayer puppet (see VehicleBase.net_*)
+# ==============================================================================================
+
+func net_get_extra() -> PackedFloat32Array:
+	return PackedFloat32Array([steer_angle, steer_norm, get_rpm_factor(), _throttle_eff, _skid, float(gear)])
+
+
+func net_set_extra(e: PackedFloat32Array) -> void:
+	if e.size() < 6:
+		return
+	steer_angle = e[0]
+	steer_norm = e[1]
+	rpm = e[2] * maxf(spec.redline_rpm, 1.0)
+	_throttle_eff = e[3]
+	_skid = e[4]
+	gear = int(roundf(e[5]))
+
+
+func net_puppet_tick(delta: float) -> void:
+	super.net_puppet_tick(delta)
+	_brake_lamp = net_braking
+	grounded_wheels = wheels.size()
+	_visual_settled = false
+	for w: VehicleWheel in wheels:
+		w.grounded = true
+		w.compression = 0.0
+		w.steer = steer_angle * w.steer_ratio
+		w.ang_vel = _fwd_speed / maxf(w.radius, 0.1)
+		w.skid = _skid if not w.is_front else 0.0
+		w.contact_point = global_transform * (w.rest_pos - Vector3(0.0, w.radius, 0.0))
+
+
+func is_reversing() -> bool:
+	if net_puppet:
+		return net_reversing
+	return gear == -1 and engine_on and (in_throttle < -0.02 or _fwd_speed < -0.3)

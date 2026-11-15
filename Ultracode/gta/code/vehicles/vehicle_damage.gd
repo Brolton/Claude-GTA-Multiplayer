@@ -200,6 +200,9 @@ func _break_pane(i: int, with_fx: bool) -> void:
 # ==============================================================================================
 
 func update(delta: float) -> void:
+	if v.net_puppet:
+		_update_puppet(delta)
+		return
 	if v.destroyed:
 		if not v.freeze:
 			_wreck_t += delta
@@ -419,3 +422,67 @@ func _make_debris(part: Node3D) -> void:
 	_hidden_parts.append(part)
 	# the debris frees itself (the callable lives on the debris body, not on this helper)
 	v.get_tree().create_timer(randf_range(9.0, 14.0), false).timeout.connect(body.queue_free)
+
+
+# ==============================================================================================
+# multiplayer puppet: looks only - the authority decides about fire, fuse and explosion
+# ==============================================================================================
+
+func _update_puppet(delta: float) -> void:
+	if v.destroyed:
+		return
+	var r := v.get_health_ratio()
+	burning = v.on_fire
+	if burning and (fire_node == null or not is_instance_valid(fire_node)) and v.is_inside_tree() and v.detail_level <= 1:
+		fire_node = Fx.spawn_fire(v.get_engine_position(), 12.0, v, 1.1)
+		if fire_node != null and "deals_damage" in fire_node:
+			fire_node.set("deals_damage", false)
+	elif not burning and fire_node != null and is_instance_valid(fire_node):
+		fire_node.queue_free()
+		fire_node = null
+	smoking = r < SMOKE_AT or burning
+	var kind := ""
+	if smoking and v.detail_level <= 1 and v.is_inside_tree():
+		kind = "black" if burning else ("heavy" if r < 0.3 else "light")
+	if kind != _smoke_kind:
+		_set_smoke(kind)
+	if kind != "" and smoke_node == null:
+		_smoke_t -= delta
+		if _smoke_t <= 0.0:
+			_smoke_t = 0.4
+			Fx.smoke_puff(v.get_engine_position() + Vector3.UP * 0.2, kind, 0.9)
+
+
+## Puppet: the authority reported the explosion - turn into the burnt wreck (the blast itself
+## arrives as its own cosmetic event, the occupants are handled by their own machines).
+func net_wreck() -> void:
+	if v.destroyed:
+		return
+	_set_smoke("")
+	v.destroyed = true
+	v.health = 0.0
+	burning = false
+	smoking = false
+	v.on_fire = false
+	v.engine_on = false
+	v.siren_on = false
+	v.horn_on = false
+	v.headlight_mode = 0
+	v.wreck_time_msec = VehicleBase.now_msec()
+	break_all_glass(false)
+	v.set_lid_open("hood", randf_range(0.45, 1.0), true)
+	v.set_lid_open("trunk", randf_range(0.15, 1.0), true)
+	v._apply_burnt_look()
+	v._on_destroyed()
+	if v.audio != null:
+		v.audio.stop_all()
+	if v.lights != null:
+		v.lights.refresh()
+	if fire_node != null and is_instance_valid(fire_node):
+		fire_node.queue_free()
+	fire_node = null
+	if v.is_inside_tree():
+		fire_node = Fx.spawn_fire(v.get_center_position(), 14.0, v, 1.5)
+		if fire_node != null and "deals_damage" in fire_node:
+			fire_node.set("deals_damage", false)
+		EventBus.vehicle_destroyed.emit(v, null)
