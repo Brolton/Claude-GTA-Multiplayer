@@ -69,3 +69,18 @@ HalcyonBay_Multiplayer.exe -- --solo
 Код сети — `Ultracode/gta/code/net/`. Тест на одной машине (хост + клиент):
 `Ultracode/tools/mp_test.sh <Godot console exe> <папка логов> [window]`.
 Сборка: `godot --headless --path Ultracode --export-release "Windows Desktop" build/HalcyonBay_Multiplayer.exe`.
+
+## macOS и Linux
+
+В релизе есть сборки для всех трёх систем; играть можно вместе (Windows + macOS + Linux).
+Эти две сборки собраны на Windows и на самих macOS / Linux **не запускались** — если что-то не так, сообщите.
+
+- **Linux (x86_64):** `HalcyonBay_Multiplayer.x86_64`. Нужен Vulkan.
+  ```
+  chmod +x HalcyonBay_Multiplayer.x86_64
+  ./HalcyonBay_Multiplayer.x86_64
+  ```
+- **macOS (Intel и Apple Silicon):** `HalcyonBay_Multiplayer_macOS.zip`. Распакуйте. Приложение не
+  подписано Apple, поэтому при первом запуске: правый щелчок по приложению → «Открыть» → «Открыть».
+  Если macOS пишет, что приложение повреждено, выполните в Терминале
+  `xattr -dr com.apple.quarantine "<путь к приложению>.app"`.
